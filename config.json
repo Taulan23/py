@@ -9,10 +9,19 @@
     "sharpen": true,
     "threshold": 120,
     "clahe_clip_limit": 2.0,
-    "clahe_tile_grid": [
-      8,
-      8
-    ]
+    "clahe_tile_grid": [8, 8]
   },
-  "region_file": "region.json"
+  "region_file": "region.json",
+  "table_display": {
+    "use_colors": true,
+    "table_format": "grid",
+    "max_rows": 20,
+    "show_stats": true
+  },
+  "thresholds": {
+    "warning_time": 30.0,
+    "critical_time": 50.0,
+    "max_count_warning": 5
+  },
+  "stats_file": "timer_stats.json"
 }

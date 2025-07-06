@@ -276,7 +276,7 @@ def select_region(config):
         position_thread.start()
         
         input("\n   Нажмите Enter для фиксации позиции...")
-        x1, y1 = pyautogui.position()
+    x1, y1 = pyautogui.position()
         print(f"   ✅ Зафиксировано: ({x1}, {y1})")
         
         # Вторая точка
@@ -287,7 +287,7 @@ def select_region(config):
         position_thread.start()
         
         input("\n   Нажмите Enter для фиксации позиции...")
-        x2, y2 = pyautogui.position()
+    x2, y2 = pyautogui.position()
         print(f"   ✅ Зафиксировано: ({x2}, {y2})")
         
         # Вычисляем область
@@ -329,7 +329,7 @@ def preprocess_image(img, config):
                 clipLimit=config['image_processing']['clahe_clip_limit'],
                 tileGridSize=tuple(config['image_processing']['clahe_tile_grid'])
             )
-            v_enhanced = clahe.apply(v)
+        v_enhanced = clahe.apply(v)
         else:
             v_enhanced = v
         
@@ -344,8 +344,8 @@ def preprocess_image(img, config):
         
         # Заточка изображения
         if config['image_processing']['sharpen']:
-            kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
-            sharpened = cv2.filter2D(v_enhanced, -1, kernel)
+        kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+        sharpened = cv2.filter2D(v_enhanced, -1, kernel)
         else:
             sharpened = v_enhanced
         
@@ -380,7 +380,7 @@ def recognize_text(img, config):
             lines.append("?")
         
         return lines[:3]
-        
+
     except Exception as e:
         if config['debug_mode']:
             print(f"⚠️ Ошибка распознавания: {e}")
@@ -431,8 +431,67 @@ def save_single_number(number, filename):
         existing_numbers.insert(0, new_entry)
         save_numbers(existing_numbers, filename)
         
+        # Обновляем счетчики серий
+        series_filename = filename.replace('.json', '_series.json')
+        update_series_counters(number, series_filename)
+        
     except Exception as e:
         print(f"❌ Ошибка сохранения числа: {e}")
+
+def update_series_counters(current_value, series_filename):
+    """Обновляет счетчики серий для пользовательских меток"""
+    try:
+        # Конвертируем значение в число
+        try:
+            value = float(current_value.replace(':', '.'))
+        except:
+            return
+        
+        # Загружаем существующие счетчики
+        series_data = load_series_data(series_filename)
+        
+        # Обновляем счетчики для каждой метки
+        for mark in series_data['user_marks']:
+            mark_str = str(mark)
+            
+            if value <= mark:
+                # Значение не превысило метку - увеличиваем текущую серию
+                series_data['current_series'][mark_str] = series_data['current_series'].get(mark_str, 0) + 1
+                
+                # Проверяем и обновляем максимальную серию
+                current_count = series_data['current_series'][mark_str]
+                max_count = series_data['max_series'].get(mark_str, 0)
+                
+                if current_count > max_count:
+                    series_data['max_series'][mark_str] = current_count
+            else:
+                # Значение превысило метку - сбрасываем текущую серию
+                series_data['current_series'][mark_str] = 0
+        
+        # Сохраняем обновленные счетчики
+        save_stats_data(series_data, series_filename)
+        
+    except Exception as e:
+        print(f"⚠️ Ошибка при обновлении счетчиков: {e}")
+
+def load_series_data(filename):
+    """Загружает данные счетчиков серий"""
+    try:
+        data = load_stats_data(filename)
+        if not data:
+            # Инициализируем стандартные метки если файл пустой
+            return {
+                'user_marks': [3.0, 4.0, 5.0, 6.0, 7.0],
+                'max_series': {str(mark): 0 for mark in [3.0, 4.0, 5.0, 6.0, 7.0]},
+                'current_series': {str(mark): 0 for mark in [3.0, 4.0, 5.0, 6.0, 7.0]}
+            }
+        return data
+    except:
+        return {
+            'user_marks': [3.0, 4.0, 5.0, 6.0, 7.0],
+            'max_series': {str(mark): 0 for mark in [3.0, 4.0, 5.0, 6.0, 7.0]},
+            'current_series': {str(mark): 0 for mark in [3.0, 4.0, 5.0, 6.0, 7.0]}
+        }
 
 def display_results(current_values, new_numbers_list, config):
     """Отображает результаты в улучшенном цветном формате"""
@@ -497,6 +556,29 @@ def display_results(current_values, new_numbers_list, config):
         if len(new_numbers_list) > max_rows:
             remaining = len(new_numbers_list) - max_rows
             print(f"{Fore.YELLOW if colors_enabled else ''}... и еще {remaining} записей{reset_color}")
+    
+    # Таблица пользовательских меток
+    print(f"\n{header_color}=== 🎯 Пользовательские метки ==={reset_color}")
+    series_filename = config['output_file'].replace('.json', '_series.json')
+    series_data = load_series_data(series_filename)
+    
+    marks_table = []
+    for mark in sorted(series_data['user_marks']):
+        mark_str = str(mark)
+        max_series = series_data['max_series'].get(mark_str, 0)
+        current_series = series_data['current_series'].get(mark_str, 0)
+        
+        # Цветовое кодирование для счетчиков
+        max_color = Fore.BLUE if colors_enabled and max_series > 0 else ""
+        current_color = get_counter_color(current_series, max_series, config) if colors_enabled else ""
+        
+        colored_max = f"{max_color}{max_series}{reset_color}"
+        colored_current = f"{current_color}{current_series}{reset_color}"
+        
+        marks_table.append([mark, colored_max, colored_current])
+    
+    print(tabulate(marks_table, headers=["Метка", "Макс.серия", "Текущ.серия"], 
+                   tablefmt=config['table_display']['table_format']))
     
     # Расширенная статистика
     if config['table_display']['show_stats']:
@@ -626,6 +708,29 @@ def view_saved_data(config):
         if len(numbers) > max_display:
             remaining = len(numbers) - max_display
             print(f"\n{Fore.YELLOW if colors_enabled else ''}... и еще {remaining} записей{reset_color}")
+        
+        # Таблица пользовательских меток
+        print(f"\n{header_color}=== 🎯 Пользовательские метки ==={reset_color}")
+        series_filename = config['output_file'].replace('.json', '_series.json')
+        series_data = load_series_data(series_filename)
+        
+        marks_table = []
+        for mark in sorted(series_data['user_marks']):
+            mark_str = str(mark)
+            max_series = series_data['max_series'].get(mark_str, 0)
+            current_series = series_data['current_series'].get(mark_str, 0)
+            
+            # Цветовое кодирование для счетчиков
+            max_color = Fore.BLUE if colors_enabled and max_series > 0 else ""
+            current_color = get_counter_color(current_series, max_series, config) if colors_enabled else ""
+            
+            colored_max = f"{max_color}{max_series}{reset_color}"
+            colored_current = f"{current_color}{current_series}{reset_color}"
+            
+            marks_table.append([mark, colored_max, colored_current])
+        
+        print(tabulate(marks_table, headers=["Метка", "Макс.серия", "Текущ.серия"], 
+                       tablefmt=config['table_display']['table_format']))
         
         # Кнопки управления
         print(f"\n{Fore.GREEN if colors_enabled else ''}⚙️  Доступные действия:{reset_color}")
@@ -788,6 +893,61 @@ def export_to_csv(config, filename):
     except Exception as e:
         print(f"{Fore.RED if colors_enabled else ''}❌ Ошибка при экспорте: {e}{Style.RESET_ALL if colors_enabled else ''}")
 
+def show_series_counters(config):
+    """Показать только таблицу счетчиков серий"""
+    try:
+        colors_enabled = init_colorama() and config['table_display']['use_colors']
+        header_color = Fore.CYAN if colors_enabled else ""
+        reset_color = Style.RESET_ALL if colors_enabled else ""
+        
+        print(f"{header_color}🎯 Пользовательские метки{reset_color}")
+        print("=" * 50)
+        
+        series_filename = config['output_file'].replace('.json', '_series.json')
+        series_data = load_series_data(series_filename)
+        
+        marks_table = []
+        for mark in sorted(series_data['user_marks']):
+            mark_str = str(mark)
+            max_series = series_data['max_series'].get(mark_str, 0)
+            current_series = series_data['current_series'].get(mark_str, 0)
+            
+            # Цветовое кодирование для счетчиков
+            max_color = Fore.BLUE if colors_enabled and max_series > 0 else ""
+            current_color = get_counter_color(current_series, max_series, config) if colors_enabled else ""
+            
+            colored_max = f"{max_color}{max_series}{reset_color}"
+            colored_current = f"{current_color}{current_series}{reset_color}"
+            
+            marks_table.append([mark, colored_max, colored_current])
+        
+        print(tabulate(marks_table, headers=["Метка", "Макс.серия", "Текущ.серия"], 
+                       tablefmt=config['table_display']['table_format']))
+        
+        print(f"\n{Fore.GREEN if colors_enabled else ''}📊 Объяснение:{reset_color}")
+        print("   Макс.серия - рекорд подряд НЕ превысивших метку")
+        print("   Текущ.серия - текущая серия НЕ превысивших метку")
+        print("   Серия сбрасывается при превышении метки")
+        
+    except Exception as e:
+        print(f"{Fore.RED if colors_enabled else ''}❌ Ошибка при отображении счетчиков: {e}{Style.RESET_ALL if colors_enabled else ''}")
+
+def clear_series_counters(config):
+    """Сбросить счетчики серий"""
+    try:
+        colors_enabled = init_colorama() and config['table_display']['use_colors']
+        
+        series_filename = config['output_file'].replace('.json', '_series.json')
+        
+        if os.path.exists(series_filename):
+            os.remove(series_filename)
+            print(f"{Fore.GREEN if colors_enabled else ''}✅ Счетчики серий сброшены{Style.RESET_ALL if colors_enabled else ''}")
+        else:
+            print(f"{Fore.YELLOW if colors_enabled else ''}⚠️ Файл счетчиков не найден{Style.RESET_ALL if colors_enabled else ''}")
+            
+    except Exception as e:
+        print(f"{Fore.RED if colors_enabled else ''}❌ Ошибка при сбросе счетчиков: {e}{Style.RESET_ALL if colors_enabled else ''}")
+
 def main():
     """Основная функция программы"""
     parser = argparse.ArgumentParser(description='Универсальная программа распознавания чисел с экрана')
@@ -796,7 +956,9 @@ def main():
     parser.add_argument('--setup', action='store_true', help='Настройка программы')
     parser.add_argument('--debug', action='store_true', help='Режим отладки')
     parser.add_argument('--stats', action='store_true', help='Просмотр расширенной статистики')
+    parser.add_argument('--series', action='store_true', help='Просмотр счетчиков серий')
     parser.add_argument('--clear-stats', action='store_true', help='Очистить файл статистики')
+    parser.add_argument('--clear-series', action='store_true', help='Сбросить счетчики серий')
     parser.add_argument('--export', type=str, help='Экспортировать данные в CSV файл')
     
     args = parser.parse_args()
@@ -826,8 +988,16 @@ def main():
         show_full_stats(config)
         return
     
+    if args.series:
+        show_series_counters(config)
+        return
+    
     if args.clear_stats:
         clear_stats(config)
+        return
+    
+    if args.clear_series:
+        clear_series_counters(config)
         return
     
     if args.export:
@@ -853,10 +1023,10 @@ def main():
         while True:
             screenshot = pyautogui.screenshot(region=region)
             processed_img = preprocess_image(screenshot, config)
-            
+
             digits = recognize_text(processed_img, config)
             current_top = digits[0]
-            
+
             # Проверяем новое число
             if current_top != "?" and (last_top is None or current_top != last_top):
                 save_single_number(current_top, config['output_file'])
@@ -870,14 +1040,14 @@ def main():
                 
                 last_top = current_top
                 print(f"🔢 Новое число: {current_top}")
-            
+
             display_results(digits, new_numbers_list, config)
             time.sleep(config['scan_interval'])
-            
+
     except KeyboardInterrupt:
         print(f"\n✅ Программа завершена")
         print(f"📊 Всего обработано: {len(new_numbers_list)} чисел")
         print(f"💾 Данные сохранены в: {config['output_file']}")
 
 if __name__ == "__main__":
-    main()
+        main()

@@ -276,7 +276,7 @@ def select_region(config):
         position_thread.start()
         
         input("\n   Нажмите Enter для фиксации позиции...")
-    x1, y1 = pyautogui.position()
+        x1, y1 = pyautogui.position()
         print(f"   ✅ Зафиксировано: ({x1}, {y1})")
         
         # Вторая точка
@@ -287,7 +287,7 @@ def select_region(config):
         position_thread.start()
         
         input("\n   Нажмите Enter для фиксации позиции...")
-    x2, y2 = pyautogui.position()
+        x2, y2 = pyautogui.position()
         print(f"   ✅ Зафиксировано: ({x2}, {y2})")
         
         # Вычисляем область
@@ -329,7 +329,7 @@ def preprocess_image(img, config):
                 clipLimit=config['image_processing']['clahe_clip_limit'],
                 tileGridSize=tuple(config['image_processing']['clahe_tile_grid'])
             )
-        v_enhanced = clahe.apply(v)
+            v_enhanced = clahe.apply(v)
         else:
             v_enhanced = v
         
@@ -344,8 +344,8 @@ def preprocess_image(img, config):
         
         # Заточка изображения
         if config['image_processing']['sharpen']:
-        kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
-        sharpened = cv2.filter2D(v_enhanced, -1, kernel)
+            kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+            sharpened = cv2.filter2D(v_enhanced, -1, kernel)
         else:
             sharpened = v_enhanced
         

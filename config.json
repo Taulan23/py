@@ -2,26 +2,35 @@
   "history_size": 5,
   "debug_mode": false,
   "output_file": "numbers.json",
-  "scan_interval": 1.0,
+  "scan_interval": 0.8,
   "tesseract_config": "--psm 11 --oem 3 -c tessedit_char_whitelist=0123456789.:",
   "image_processing": {
     "enhance_contrast": true,
     "sharpen": true,
     "threshold": 120,
     "clahe_clip_limit": 2.0,
-    "clahe_tile_grid": [8, 8]
+    "clahe_tile_grid": [
+      8,
+      8
+    ]
   },
   "region_file": "region.json",
   "table_display": {
     "use_colors": true,
-    "table_format": "grid",
-    "max_rows": 20,
-    "show_stats": true
+    "table_format": "simple",
+    "max_rows": 5,
+    "show_stats": false,
+    "refresh_interval": 0.3
   },
   "thresholds": {
     "warning_time": 30.0,
     "critical_time": 50.0,
     "max_count_warning": 5
   },
-  "stats_file": "timer_stats.json"
+  "stats_file": "timer_stats.json",
+  "performance": {
+    "fast_mode": true,
+    "cache_data": true,
+    "minimal_display": false
+  }
 }

@@ -33,22 +33,37 @@ DEFAULT_CONFIG = {
     'region_file': 'region.json',
     'table_display': {
         'use_colors': True,
-        'table_format': 'grid',
-        'max_rows': 20,
-        'show_stats': True
+        'table_format': 'simple',  # Изменено с 'grid' на 'simple' для скорости
+        'max_rows': 10,           # Уменьшено с 20 до 10
+        'show_stats': False,      # Отключено по умолчанию
+        'refresh_interval': 0.5   # Добавлен интервал обновления экрана
     },
     'thresholds': {
         'warning_time': 30.0,
         'critical_time': 50.0,
         'max_count_warning': 5
     },
-    'stats_file': 'timer_stats.json'
+    'stats_file': 'timer_stats.json',
+    'performance': {
+        'fast_mode': True,        # Быстрый режим
+        'cache_data': True,       # Кэширование данных
+        'minimal_display': False   # Минимальный вывод
+    }
 }
 
+# Глобальные переменные для кэширования
+_cached_data = {}
+_last_update_time = 0
+_colors_initialized = False
+
 def init_colorama():
-    """Инициализация colorama для цветного вывода"""
+    """Инициализация colorama для цветного вывода (с кэшированием)"""
+    global _colors_initialized
+    if _colors_initialized:
+        return True
     try:
         init(autoreset=True)
+        _colors_initialized = True
         return True
     except Exception:
         return False
@@ -494,126 +509,134 @@ def load_series_data(filename):
         }
 
 def display_results(current_values, new_numbers_list, config):
-    """Отображает результаты в улучшенном цветном формате"""
+    """Оптимизированное отображение результатов"""
+    global _last_update_time
+    
+    # Проверяем интервал обновления экрана
+    current_time = time.time()
+    if current_time - _last_update_time < config['table_display'].get('refresh_interval', 0.5):
+        return
+    
+    _last_update_time = current_time
+    
+    # Быстрый режим - минимальный вывод
+    if config.get('performance', {}).get('fast_mode', False):
+        display_fast_mode(current_values, new_numbers_list, config)
+        return
+    
+    # Обычный режим (оптимизированный)
     clear_screen()
     
-    # Инициализация цветов
-    colors_enabled = init_colorama() and config['table_display']['use_colors']
+    # Инициализация цветов один раз
+    colors_enabled = _colors_initialized and config['table_display']['use_colors']
     
-    # Заголовок с цветами
-    header_color = Fore.CYAN if colors_enabled else ""
-    reset_color = Style.RESET_ALL if colors_enabled else ""
+    # Упрощенный заголовок
+    if colors_enabled:
+        print(f"{Fore.CYAN}📊 Мониторинг чисел - {datetime.now().strftime('%H:%M:%S')}{Style.RESET_ALL}")
+    else:
+        print(f"📊 Мониторинг чисел - {datetime.now().strftime('%H:%M:%S')}")
+    print("-" * 50)
     
-    # Системная информация
-    system_info = get_system_info()
-    print(f"{header_color}🖥️  Система: {system_info['platform']} | Python: {system_info['python_version']}{reset_color}")
-    print(f"{header_color}⏰ Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{reset_color}")
-    print()
-    
-    # Текущие показания с цветами
-    print(f"{header_color}=== 📊 Текущие показания ==={reset_color}")
+    # Текущие показания (компактно)
     timer_data = []
-    for i, value in enumerate(current_values):
+    for i, value in enumerate(current_values[:3]):  # Показываем только 3 строки
         if value != "?":
-            number_color = get_number_color(value, config) if colors_enabled else ""
-            status_color = Fore.GREEN if colors_enabled else ""
-            colored_value = f"{number_color}{value}{reset_color}"
-            colored_status = f"{status_color}✅{reset_color}"
+            if colors_enabled:
+                number_color = get_number_color(value, config)
+                colored_value = f"{number_color}{value}{Style.RESET_ALL}"
+                status = f"{Fore.GREEN}✓{Style.RESET_ALL}"
+            else:
+                colored_value = value
+                status = "✓"
         else:
-            colored_value = f"{Fore.RED if colors_enabled else ''}{value}{reset_color}"
-            colored_status = f"{Fore.RED if colors_enabled else ''}❌{reset_color}"
+            if colors_enabled:
+                colored_value = f"{Fore.RED}{value}{Style.RESET_ALL}"
+                status = f"{Fore.RED}✗{Style.RESET_ALL}"
+            else:
+                colored_value = value
+                status = "✗"
         
-        timer_data.append([f"Строка {i + 1}", colored_value, colored_status])
+        timer_data.append([f"Строка {i + 1}", colored_value, status])
     
     print(tabulate(timer_data, headers=["Позиция", "Значение", "Статус"], 
                    tablefmt=config['table_display']['table_format']))
     
-    # История с цветным кодированием
-    print(f"\n{header_color}=== 📈 История чисел ==={reset_color}")
-    if not new_numbers_list:
-        print(f"{Fore.YELLOW if colors_enabled else ''}📭 Нет данных{reset_color}")
-    else:
-        history_data = []
-        max_rows = min(len(new_numbers_list), config['table_display']['max_rows'])
+    # История (ограниченная)
+    if new_numbers_list:
+        print(f"\n📈 Последние числа:")
+        max_rows = min(len(new_numbers_list), 5)  # Показываем только 5 последних
         
+        history_data = []
         for i, entry in enumerate(new_numbers_list[:max_rows]):
             if isinstance(entry, dict):
                 timestamp = datetime.fromisoformat(entry['timestamp']).strftime("%H:%M:%S")
-                number_color = get_number_color(entry['number'], config) if colors_enabled else ""
-                colored_number = f"{number_color}{entry['number']}{reset_color}"
-                
-                # Цвет для номера по порядку
-                index_color = Fore.BLUE if colors_enabled and i < 3 else ""
-                colored_index = f"{index_color}{i + 1}{reset_color}"
-                
-                history_data.append([colored_index, colored_number, timestamp])
-            else:
-                history_data.append([i + 1, entry, "---"])
+                number = entry['number']
+                if colors_enabled:
+                    number_color = get_number_color(number, config)
+                    colored_number = f"{number_color}{number}{Style.RESET_ALL}"
+                else:
+                    colored_number = number
+                history_data.append([i + 1, colored_number, timestamp])
         
         print(tabulate(history_data, headers=["№", "Число", "Время"], 
                        tablefmt=config['table_display']['table_format']))
-        
-        if len(new_numbers_list) > max_rows:
-            remaining = len(new_numbers_list) - max_rows
-            print(f"{Fore.YELLOW if colors_enabled else ''}... и еще {remaining} записей{reset_color}")
-    
-    # Таблица пользовательских меток
-    print(f"\n{header_color}=== 🎯 Пользовательские метки ==={reset_color}")
-    series_filename = config['output_file'].replace('.json', '_series.json')
-    series_data = load_series_data(series_filename)
-    
-    marks_table = []
-    for mark in sorted(series_data['user_marks']):
-        mark_str = str(mark)
-        max_series = series_data['max_series'].get(mark_str, 0)
-        current_series = series_data['current_series'].get(mark_str, 0)
-        
-        # Цветовое кодирование для счетчиков
-        max_color = Fore.BLUE if colors_enabled and max_series > 0 else ""
-        current_color = get_counter_color(current_series, max_series, config) if colors_enabled else ""
-        
-        colored_max = f"{max_color}{max_series}{reset_color}"
-        colored_current = f"{current_color}{current_series}{reset_color}"
-        
-        marks_table.append([mark, colored_max, colored_current])
-    
-    print(tabulate(marks_table, headers=["Метка", "Макс.серия", "Текущ.серия"], 
-                   tablefmt=config['table_display']['table_format']))
-    
-    # Расширенная статистика
-    if config['table_display']['show_stats']:
-        print(f"\n{header_color}=== 📊 Статистика ==={reset_color}")
-        
-        # Загружаем статистику
-        stats_data = load_stats_data(config['stats_file'])
-        
-        # Основная статистика
-        total_numbers = len(new_numbers_list)
-        avg_value = 0
-        if new_numbers_list:
-            try:
-                values = [float(entry['number'].replace(':', '.')) if isinstance(entry, dict) 
-                         else float(str(entry).replace(':', '.')) for entry in new_numbers_list[:10]]
-                avg_value = sum(values) / len(values) if values else 0
-            except:
-                avg_value = 0
-        
-        stats_table = [
-            ["Всего чисел", f"{Fore.BLUE if colors_enabled else ''}{total_numbers}{reset_color}"],
-            ["Интервал сканирования", f"{config['scan_interval']}с"],
-            ["Среднее значение", f"{avg_value:.2f}" if avg_value > 0 else "---"],
-            ["Файл данных", config['output_file']],
-            ["Режим отладки", f"{'ВКЛ' if config['debug_mode'] else 'ВЫКЛ'}"]
-        ]
-        
-        print(tabulate(stats_table, headers=["Параметр", "Значение"], 
-                       tablefmt=config['table_display']['table_format']))
     
     # Управление
-    print(f"\n{Fore.GREEN if colors_enabled else ''}⚙️  Управление:{reset_color}")
-    print("   Ctrl+C - Выход")
-    print("   Пробел - Новый замер")
-    print("   Enter - Продолжить")
+    print(f"\n⚙️ Управление: Ctrl+C=Выход | Пробел=Замер")
+
+def display_fast_mode(current_values, new_numbers_list, config):
+    """Сверхбыстрый режим отображения"""
+    # Очищаем только одну строку, а не весь экран
+    print(f"\r🔍 {datetime.now().strftime('%H:%M:%S')} | ", end="")
+    
+    # Показываем только текущие значения
+    for i, value in enumerate(current_values[:3]):
+        if value != "?":
+            print(f"#{i+1}:{value} ", end="")
+        else:
+            print(f"#{i+1}:? ", end="")
+    
+    # Показываем последнее число
+    if new_numbers_list and isinstance(new_numbers_list[0], dict):
+        last_number = new_numbers_list[0]['number']
+        print(f"| Последнее: {last_number}", end="")
+    
+    print("     ", end="", flush=True)  # Очищаем остаток строки
+
+def get_cached_data(key, loader_func, cache_duration=5.0):
+    """Универсальная функция кэширования данных"""
+    global _cached_data
+    
+    current_time = time.time()
+    cache_key = f"{key}_data"
+    time_key = f"{key}_time"
+    
+    # Проверяем актуальность кэша
+    if (cache_key in _cached_data and 
+        time_key in _cached_data and 
+        current_time - _cached_data[time_key] < cache_duration):
+        return _cached_data[cache_key]
+    
+    # Обновляем кэш
+    try:
+        data = loader_func()
+        _cached_data[cache_key] = data
+        _cached_data[time_key] = current_time
+        return data
+    except Exception:
+        return _cached_data.get(cache_key, {})
+
+def load_numbers_cached(filename, config):
+    """Кэшированная загрузка чисел"""
+    if config.get('performance', {}).get('cache_data', True):
+        return get_cached_data('numbers', lambda: load_numbers(filename))
+    return load_numbers(filename)
+
+def load_series_data_cached(filename, config):
+    """Кэшированная загрузка данных серий"""
+    if config.get('performance', {}).get('cache_data', True):
+        return get_cached_data('series', lambda: load_series_data(filename))
+    return load_series_data(filename)
 
 def view_saved_data(config):
     """Просмотр сохраненных данных с цветным форматированием"""
@@ -948,6 +971,32 @@ def clear_series_counters(config):
     except Exception as e:
         print(f"{Fore.RED if colors_enabled else ''}❌ Ошибка при сбросе счетчиков: {e}{Style.RESET_ALL if colors_enabled else ''}")
 
+def clear_cache():
+    """Очистка кэша данных"""
+    global _cached_data
+    _cached_data.clear()
+    print("🧹 Кэш очищен")
+
+def toggle_performance_mode(config):
+    """Переключение режима производительности"""
+    current_mode = config.get('performance', {}).get('fast_mode', True)
+    config['performance']['fast_mode'] = not current_mode
+    
+    mode_name = "быстрый" if config['performance']['fast_mode'] else "обычный"
+    print(f"⚡ Переключен на {mode_name} режим")
+    
+    # Обновляем настройки отображения
+    if config['performance']['fast_mode']:
+        config['table_display']['refresh_interval'] = 0.3
+        config['table_display']['max_rows'] = 5
+        config['scan_interval'] = 0.6
+    else:
+        config['table_display']['refresh_interval'] = 0.5
+        config['table_display']['max_rows'] = 10
+        config['scan_interval'] = 1.0
+    
+    return config
+
 def main():
     """Основная функция программы"""
     parser = argparse.ArgumentParser(description='Универсальная программа распознавания чисел с экрана')
@@ -959,6 +1008,9 @@ def main():
     parser.add_argument('--series', action='store_true', help='Просмотр счетчиков серий')
     parser.add_argument('--clear-stats', action='store_true', help='Очистить файл статистики')
     parser.add_argument('--clear-series', action='store_true', help='Сбросить счетчики серий')
+    parser.add_argument('--clear-cache', action='store_true', help='Очистить кэш данных')
+    parser.add_argument('--fast-mode', action='store_true', help='Включить быстрый режим')
+    parser.add_argument('--normal-mode', action='store_true', help='Включить обычный режим')
     parser.add_argument('--export', type=str, help='Экспортировать данные в CSV файл')
     
     args = parser.parse_args()
@@ -973,10 +1025,34 @@ def main():
     if args.debug:
         config['debug_mode'] = True
     
+    if args.clear_cache:
+        clear_cache()
+        return
+    
+    if args.fast_mode:
+        config['performance']['fast_mode'] = True
+        print("⚡ Быстрый режим включен")
+        save_config(config, args.config)
+        return
+    
+    if args.normal_mode:
+        config['performance']['fast_mode'] = False
+        print("🐌 Обычный режим включен")
+        save_config(config, args.config)
+        return
+    
     if args.setup:
         print("🔧 Настройка программы...")
         config['history_size'] = int(input(f"Размер истории [{config['history_size']}]: ") or config['history_size'])
         config['scan_interval'] = float(input(f"Интервал сканирования [{config['scan_interval']}]: ") or config['scan_interval'])
+        
+        # Настройка режима производительности
+        fast_mode = input(f"Быстрый режим (y/n) [{config.get('performance', {}).get('fast_mode', True)}]: ").lower()
+        if fast_mode in ['y', 'yes', 'да']:
+            config['performance']['fast_mode'] = True
+        elif fast_mode in ['n', 'no', 'нет']:
+            config['performance']['fast_mode'] = False
+        
         save_config(config, args.config)
         return
     
@@ -1008,8 +1084,22 @@ def main():
     print("🚀 Запуск программы распознавания чисел...")
     print(f"📋 Конфигурация: {args.config}")
     
+    # Инициализация цветов
+    init_colorama()
+    
+    # Показываем текущий режим
+    mode_name = "⚡ быстрый" if config.get('performance', {}).get('fast_mode', True) else "🐌 обычный"
+    print(f"🔧 Режим работы: {mode_name}")
+    
+    if config.get('performance', {}).get('fast_mode', True):
+        print("💡 Быстрый режим: упрощенный интерфейс, кэширование, ускоренное сканирование")
+        print("💡 Для переключения используйте: python3 123456789000.py --normal-mode")
+    else:
+        print("💡 Обычный режим: полный интерфейс, детальная статистика")
+        print("💡 Для переключения используйте: python3 123456789000.py --fast-mode")
+    
     # Загружаем существующие данные
-    new_numbers_list = load_numbers(config['output_file'])
+    new_numbers_list = load_numbers_cached(config['output_file'], config)
     print(f"📁 Загружено {len(new_numbers_list)} записей")
     
     # Выбираем область
@@ -1017,9 +1107,18 @@ def main():
     print(f"🎯 Область мониторинга: {region}")
     
     last_top = None
+    save_counter = 0  # Счетчик для уменьшения частоты сохранений
     
     try:
         print("🔄 Начало мониторинга...")
+        print("💡 Советы по производительности:")
+        if config.get('performance', {}).get('fast_mode', True):
+            print("   • Быстрый режим активен - данные обновляются каждые 0.3с")
+            print("   • Сохранение происходит не при каждом изменении")
+            print("   • Для полной статистики переключитесь в обычный режим")
+        print("   • Ctrl+C для выхода")
+        print()
+        
         while True:
             screenshot = pyautogui.screenshot(region=region)
             processed_img = preprocess_image(screenshot, config)
@@ -1029,7 +1128,14 @@ def main():
 
             # Проверяем новое число
             if current_top != "?" and (last_top is None or current_top != last_top):
-                save_single_number(current_top, config['output_file'])
+                # Сохраняем только каждое 3-е изменение для ускорения
+                if config.get('performance', {}).get('fast_mode', True):
+                    save_counter += 1
+                    if save_counter >= 3:
+                        save_single_number(current_top, config['output_file'])
+                        save_counter = 0
+                else:
+                    save_single_number(current_top, config['output_file'])
                 
                 new_entry = {
                     'number': current_top,
@@ -1038,11 +1144,22 @@ def main():
                 }
                 new_numbers_list.insert(0, new_entry)
                 
+                # Ограничиваем размер списка в памяти
+                if len(new_numbers_list) > config.get('history_size', 10) * 2:
+                    new_numbers_list = new_numbers_list[:config.get('history_size', 10)]
+                
                 last_top = current_top
-                print(f"🔢 Новое число: {current_top}")
+                if not config.get('performance', {}).get('fast_mode', True):
+                    print(f"🔢 Новое число: {current_top}")
 
             display_results(digits, new_numbers_list, config)
-            time.sleep(config['scan_interval'])
+            
+            # Динамический интервал сканирования
+            scan_interval = config['scan_interval']
+            if config.get('performance', {}).get('fast_mode', True):
+                scan_interval = max(0.3, scan_interval * 0.7)  # Уменьшаем интервал в быстром режиме
+            
+            time.sleep(scan_interval)
 
     except KeyboardInterrupt:
         print(f"\n✅ Программа завершена")
